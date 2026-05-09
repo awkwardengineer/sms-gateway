@@ -6,6 +6,10 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { config as loadEnv } from "dotenv";
 import { existsSync } from "fs";
 import { join } from "path";
+import {
+  formatBusReply,
+  nextBusMinutesFromNow,
+} from "../lib/mbta";
 import { fetchCurrentWeatherForZip, formatWeatherText } from "../lib/weather";
 
 const root = process.cwd();
@@ -14,8 +18,10 @@ if (existsSync(join(root, ".env.local"))) {
   loadEnv({ path: join(root, ".env.local"), override: true });
 }
 
-/** Message contains "weather" → Open-Meteo using WEATHER_ZIP. */
 const WEATHER = /weather/i;
+const BUS = /\bbus\b/i;
+const SCHOOL = /\bschool\b/i;
+const HOME = /\bhome\b/i;
 
 /** Read user message from JSON, urlencoded form, plain-text body, or parsed object. */
 function getText(req: VercelRequest): string {
@@ -95,15 +101,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   logIncomingBody(req);
   const text = getText(req);
+  const wantsSchool = BUS.test(text) && SCHOOL.test(text);
+  const wantsHome = BUS.test(text) && HOME.test(text);
   console.error("[inbound-sms] parsed text:", {
     len: text.length,
     weather: WEATHER.test(text),
+    busSchool: wantsSchool,
+    busHome: wantsHome,
     text: text.slice(0, 200),
   });
 
   let body = "hello world";
 
-  if (WEATHER.test(text)) {
+  if (wantsSchool) {
+    try {
+      const mins = await nextBusMinutesFromNow({
+        stopId: "2704",
+        routeIds: ["89", "101"],
+        headsignAnyOf: ["sullivan"],
+        max: 4,
+      });
+      body = formatBusReply("bus to school", mins);
+      console.error("[inbound-sms] mbta school ok", mins);
+    } catch (e) {
+      body = "Bus times unavailable.";
+      console.error("[inbound-sms] mbta school error", e);
+    }
+  } else if (wantsHome) {
+    try {
+      const mins = await nextBusMinutesFromNow({
+        stopId: "2721",
+        routeIds: ["89", "101"],
+        headsignAnyOf: ["davis", "clarendon", "malden"],
+        max: 4,
+      });
+      body = formatBusReply("bus to home", mins);
+      console.error("[inbound-sms] mbta home ok", mins);
+    } catch (e) {
+      body = "Bus times unavailable.";
+      console.error("[inbound-sms] mbta home error", e);
+    }
+  } else if (WEATHER.test(text)) {
     const zip = process.env.WEATHER_ZIP?.trim();
     if (!zip) {
       body = "Set WEATHER_ZIP in .env";
