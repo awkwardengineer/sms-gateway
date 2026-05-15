@@ -3,20 +3,29 @@
  * **GET** is only a health check (`sms-gateway ok`).
  */
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { config as loadEnv } from "dotenv";
-import { existsSync } from "fs";
-import { join } from "path";
 import {
   formatBusReply,
   nextBusMinutesFromNow,
 } from "../lib/mbta";
 import { fetchCurrentWeatherForZip, formatWeatherText } from "../lib/weather";
 
-const root = process.cwd();
-if (existsSync(join(root, ".env"))) loadEnv({ path: join(root, ".env") });
-if (existsSync(join(root, ".env.local"))) {
-  loadEnv({ path: join(root, ".env.local"), override: true });
+/** Vercel injects env vars; dotenv files are for local `vercel dev` only. */
+function loadLocalEnvFiles() {
+  if (process.env.VERCEL) return;
+  try {
+    const { existsSync } = require("fs") as typeof import("fs");
+    const { join } = require("path") as typeof import("path");
+    const { config: loadEnv } = require("dotenv") as typeof import("dotenv");
+    const root = process.cwd();
+    if (existsSync(join(root, ".env"))) loadEnv({ path: join(root, ".env") });
+    if (existsSync(join(root, ".env.local"))) {
+      loadEnv({ path: join(root, ".env.local"), override: true });
+    }
+  } catch (e) {
+    console.error("[inbound-sms] dotenv load skipped:", e);
+  }
 }
+loadLocalEnvFiles();
 
 const WEATHER = /weather/i;
 const BUS = /\bbus\b/i;
