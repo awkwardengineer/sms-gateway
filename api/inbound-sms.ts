@@ -6,8 +6,8 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
   formatBusReply,
   nextBusMinutesFromNow,
-} from "../lib/mbta";
-import { fetchCurrentWeatherForZip, formatWeatherText } from "../lib/weather";
+} from "../lib/mbta.js";
+import { fetchCurrentWeatherForZip, formatWeatherText } from "../lib/weather.js";
 
 /** Vercel injects env vars; dotenv files are for local `vercel dev` only. */
 function loadLocalEnvFiles() {
