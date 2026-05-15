@@ -1,7 +1,0 @@
-{
-  "functions": {
-    "api/inbound-sms.ts": {
-      "runtime": "nodejs20.x"
-    }
-  }
-}
