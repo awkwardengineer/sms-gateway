@@ -119,5 +119,5 @@ export function formatBusReply(title: "bus to school" | "bus to home", minutes: 
     return `${title}\n${rule}\nbus: no predictions`;
   }
   const list = minutes.join(",");
-  return `${title}\n${rule}\nbus in ${list}min`;
+  return `${title}\n${rule}\n${list} min`;
 }
