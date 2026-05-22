@@ -118,6 +118,6 @@ export function formatBusReply(title: "bus to school" | "bus to home", minutes: 
   if (minutes.length === 0) {
     return `${title}\n${rule}\nbus: no predictions`;
   }
-  const list = minutes.join(",");
+  const list = minutes.join(", ");
   return `${title}\n${rule}\n${list} min`;
 }
