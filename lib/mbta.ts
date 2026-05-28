@@ -140,6 +140,59 @@ export type StopArrival = {
   minutes: number;
 };
 
+type DestinationGroup = {
+  routes: string[];
+  direction: string;
+  minutes: number[];
+};
+
+function sortRouteNames(routes: string[]): string[] {
+  return [...routes].sort((a, b) => {
+    const na = Number(a);
+    const nb = Number(b);
+    if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+    return a.localeCompare(b);
+  });
+}
+
+/** Group arrivals by destination; merge routes and minute lists per headsign. */
+export function groupArrivalsByDestination(arrivals: StopArrival[]): DestinationGroup[] {
+  const map = new Map<string, { routes: Set<string>; minutes: number[]; direction: string }>();
+
+  for (const a of arrivals) {
+    const dir = a.direction.trim();
+    const key = dir.toLowerCase() || "\0";
+    let g = map.get(key);
+    if (!g) {
+      g = { routes: new Set(), minutes: [], direction: dir };
+      map.set(key, g);
+    }
+    if (a.route) g.routes.add(a.route);
+    g.minutes.push(a.minutes);
+  }
+
+  const groups: Array<DestinationGroup & { sortKey: number }> = [];
+  for (const g of map.values()) {
+    const minutes = [...new Set(g.minutes)].sort((a, b) => a - b);
+    groups.push({
+      routes: sortRouteNames([...g.routes]),
+      direction: g.direction,
+      minutes,
+      sortKey: minutes[0] ?? Number.MAX_SAFE_INTEGER,
+    });
+  }
+
+  groups.sort((a, b) => a.sortKey - b.sortKey);
+  return groups.map(({ routes, direction, minutes }) => ({ routes, direction, minutes }));
+}
+
+function formatDestinationGroupLine(g: DestinationGroup): string {
+  const routes = g.routes.join("/");
+  const times = g.minutes.join(", ");
+  if (g.direction) return `${routes} ${g.direction} ${times} min`;
+  return `${routes} ${times} min`;
+}
+
 async function fetchStop(stopId: string): Promise<{ id: string; name: string } | null> {
   const url = new URL(`https://api-v3.mbta.com/stops/${encodeURIComponent(stopId)}`);
   const res = await mbtaFetch(url);
@@ -158,7 +211,7 @@ async function fetchStop(stopId: string): Promise<{ id: string; name: string } |
  */
 export async function nextBusArrivalsAtStop(
   stopId: string,
-  max: number
+  max?: number
 ): Promise<StopArrival[]> {
   const json = await fetchPredictionsAtStop(stopId);
   const included = buildIncludedMap(json.included);
@@ -196,7 +249,7 @@ export async function nextBusArrivalsAtStop(
       direction,
       minutes: Math.floor((t - now) / 60_000),
     });
-    if (arrivals.length >= max) break;
+    if (max != null && arrivals.length >= max) break;
   }
 
   return arrivals;
@@ -209,13 +262,10 @@ export function formatMbtaStopReply(
 ): string {
   const header = `MBTA ${stopNumber}`;
   if (arrivals.length === 0) {
-    return `${header}\n${RULE}\n${stopName}\nno predictions`;
+    return `${header}\n${stopName}\n${RULE}\nno predictions`;
   }
-  const lines = arrivals.map((a) => {
-    const dir = a.direction ? ` ${a.direction}` : "";
-    return `${a.route}${dir} ${a.minutes} min`;
-  });
-  return `${header}\n${RULE}\n${stopName}\n${lines.join("\n")}`;
+  const lines = groupArrivalsByDestination(arrivals).map(formatDestinationGroupLine);
+  return `${header}\n${stopName}\n${RULE}\n${lines.join("\n")}`;
 }
 
 /** Lookup stop by number and return formatted SMS, or a user-facing error. */
@@ -223,7 +273,7 @@ export async function replyForMbtaStop(stopNumber: string): Promise<string> {
   try {
     const stop = await fetchStop(stopNumber);
     if (!stop) return `MBTA stop ${stopNumber} not found.`;
-    const arrivals = await nextBusArrivalsAtStop(stop.id, 8);
+    const arrivals = await nextBusArrivalsAtStop(stop.id);
     return formatMbtaStopReply(stopNumber, stop.name, arrivals);
   } catch {
     return "MBTA unavailable.";
