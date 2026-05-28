@@ -6,6 +6,8 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
   formatBusReply,
   nextBusMinutesFromNow,
+  parseMbtaStopQuery,
+  replyForMbtaStop,
 } from "../lib/mbta.js";
 import { fetchCurrentWeatherForZip, formatWeatherText } from "../lib/weather.js";
 
@@ -28,7 +30,6 @@ function loadLocalEnvFiles() {
 loadLocalEnvFiles();
 
 const WEATHER = /weather/i;
-const BUS = /\bbus\b/i;
 const SCHOOL = /\bschool\b/i;
 const HOME = /\bhome\b/i;
 
@@ -110,19 +111,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   logIncomingBody(req);
   const text = getText(req);
-  const wantsSchool = BUS.test(text) && SCHOOL.test(text);
-  const wantsHome = BUS.test(text) && HOME.test(text);
+  const mbtaQuery = parseMbtaStopQuery(text);
+  const wantsSchool = SCHOOL.test(text);
+  const wantsHome = HOME.test(text);
   console.error("[inbound-sms] parsed text:", {
     len: text.length,
     weather: WEATHER.test(text),
-    busSchool: wantsSchool,
-    busHome: wantsHome,
+    mbtaStop: mbtaQuery.type === "ok" ? mbtaQuery.stopNumber : mbtaQuery.type,
+    school: wantsSchool,
+    home: wantsHome,
     text: text.slice(0, 200),
   });
 
   let body = "hello world";
 
-  if (wantsSchool) {
+  if (mbtaQuery.type === "invalid") {
+    body = 'MBTA: use "MBTA 1234" (stop number).';
+    console.error("[inbound-sms] mbta stop invalid format");
+  } else if (mbtaQuery.type === "ok") {
+    body = await replyForMbtaStop(mbtaQuery.stopNumber);
+    console.error("[inbound-sms] mbta stop", mbtaQuery.stopNumber, "ok");
+  } else if (wantsSchool) {
     try {
       const mins = await nextBusMinutesFromNow({
         stopId: "2704",
