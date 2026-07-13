@@ -94,7 +94,14 @@ Example — Davis → home:
 
 ## Error handling
 
-- **Per-section** failure: if one MBTA query throws, that section is emitted as `title` + rule + `Bus times unavailable.` (or keep the existing single-line `Bus times unavailable.` under the title — same idea: section stays present).
+- **Per-section** failure: if one MBTA query throws, still emit that section as:
+
+```
+<title>
+===============
+Bus times unavailable.
+```
+
 - Always return both section titles for multi-section intents, even when one or both queries fail.
 ## Out of scope
 
