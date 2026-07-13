@@ -5,9 +5,11 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
   formatBusReply,
+  formatBusUnavailable,
   nextBusMinutesFromNow,
   parseMbtaStopQuery,
   replyForMbtaStop,
+  type NextBusQuery,
 } from "../lib/mbta.js";
 import { fetchCurrentWeatherForZip, formatWeatherText } from "../lib/weather.js";
 
@@ -32,6 +34,17 @@ loadLocalEnvFiles();
 const WEATHER = /weather/i;
 const SCHOOL = /\bschool\b/i;
 const HOME = /\bhome\b/i;
+const DAVIS = /\bdavis\b/i;
+
+async function busSection(title: string, q: NextBusQuery): Promise<string> {
+  try {
+    const mins = await nextBusMinutesFromNow(q);
+    return formatBusReply(title, mins);
+  } catch (e) {
+    console.error("[inbound-sms] mbta section error", title, e);
+    return formatBusUnavailable(title);
+  }
+}
 
 /** Read user message from JSON, urlencoded form, plain-text body, or parsed object. */
 function getText(req: VercelRequest): string {
@@ -114,12 +127,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const mbtaQuery = parseMbtaStopQuery(text);
   const wantsSchool = SCHOOL.test(text);
   const wantsHome = HOME.test(text);
+  const wantsDavis = DAVIS.test(text);
+  const wantsDavisHome = wantsDavis && wantsHome;
   console.error("[inbound-sms] parsed text:", {
     len: text.length,
     weather: WEATHER.test(text),
     mbtaStop: mbtaQuery.type === "ok" ? mbtaQuery.stopNumber : mbtaQuery.type,
     school: wantsSchool,
     home: wantsHome,
+    davis: wantsDavis,
+    davisHome: wantsDavisHome,
     text: text.slice(0, 200),
   });
 
@@ -131,6 +148,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } else if (mbtaQuery.type === "ok") {
     body = await replyForMbtaStop(mbtaQuery.stopNumber);
     console.error("[inbound-sms] mbta stop", mbtaQuery.stopNumber, "ok");
+  } else if (wantsDavisHome) {
+    const [fromDavis, fromTenoch] = await Promise.all([
+      busSection("89 from Davis", {
+        stopId: "5104",
+        routeIds: ["89"],
+        headsignAnyOf: ["sullivan"],
+        max: 4,
+      }),
+      busSection("88/90 from Tenoch", {
+        stopId: "2674",
+        routeIds: ["88", "90"],
+        max: 4,
+      }),
+    ]);
+    body = `${fromDavis}\n\n${fromTenoch}`;
+    console.error("[inbound-sms] mbta davis-home ok");
   } else if (wantsSchool) {
     try {
       const mins = await nextBusMinutesFromNow({
@@ -159,6 +192,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       body = "Bus times unavailable.";
       console.error("[inbound-sms] mbta home error", e);
     }
+  } else if (wantsDavis) {
+    const [toDavis, toClarendon] = await Promise.all([
+      busSection("89 to Davis", {
+        stopId: "2729",
+        routeIds: ["89"],
+        headsignAnyOf: ["davis"],
+        max: 4,
+      }),
+      busSection("89 to Clarendon", {
+        stopId: "2729",
+        routeIds: ["89"],
+        headsignAnyOf: ["clarendon"],
+        max: 4,
+      }),
+    ]);
+    body = `${toDavis}\n\n${toClarendon}`;
+    console.error("[inbound-sms] mbta davis ok");
   } else if (WEATHER.test(text)) {
     const zip = process.env.WEATHER_ZIP?.trim();
     if (!zip) {

@@ -284,8 +284,11 @@ export type NextBusQuery = {
   stopId: string;
   /** MBTA route ids, e.g. "89", "101" */
   routeIds: string[];
-  /** Keep prediction if headsign matches any (case-insensitive substring). */
-  headsignAnyOf: string[];
+  /**
+   * Keep prediction if headsign matches any (case-insensitive substring).
+   * Omit or pass [] to keep all headsigns for the given routes.
+   */
+  headsignAnyOf?: string[];
   max: number;
 };
 
@@ -297,7 +300,8 @@ export async function nextBusMinutesFromNow(q: NextBusQuery): Promise<number[]> 
   const json = await fetchPredictionsAtStop(q.stopId);
   const included = buildIncludedMap(json.included);
   const routeSet = new Set(q.routeIds);
-  const headLower = q.headsignAnyOf.map((s) => s.toLowerCase());
+  const headLower = (q.headsignAnyOf ?? []).map((s) => s.toLowerCase());
+  const filterHeadsign = headLower.length > 0;
 
   const now = Date.now();
   type Row = { t: number; iso: string };
@@ -309,8 +313,10 @@ export async function nextBusMinutesFromNow(q: NextBusQuery): Promise<number[]> 
     if (!routeId || !routeSet.has(routeId)) continue;
     const tripId = p.relationships?.trip?.data?.id;
     const head = tripHeadsign(tripId, included);
-    const hl = head.toLowerCase();
-    if (!headLower.some((frag) => hl.includes(frag))) continue;
+    if (filterHeadsign) {
+      const hl = head.toLowerCase();
+      if (!headLower.some((frag) => hl.includes(frag))) continue;
+    }
     const iso = predictionDepartureIso(p);
     if (!iso) continue;
     const t = Date.parse(iso);
@@ -333,10 +339,14 @@ export async function nextBusMinutesFromNow(q: NextBusQuery): Promise<number[]> 
   return minutes;
 }
 
-export function formatBusReply(title: "bus to school" | "bus to home", minutes: number[]): string {
+export function formatBusReply(title: string, minutes: number[]): string {
   if (minutes.length === 0) {
     return `${title}\n${RULE}\nbus: no predictions`;
   }
   const list = minutes.join(", ");
   return `${title}\n${RULE}\n${list} min`;
+}
+
+export function formatBusUnavailable(title: string): string {
+  return `${title}\n${RULE}\nBus times unavailable.`;
 }
