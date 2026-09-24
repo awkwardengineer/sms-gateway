@@ -11,6 +11,11 @@ import {
   replyForMbtaStop,
   type NextBusQuery,
 } from "../lib/mbta.js";
+import {
+  formatEmojiSearchText,
+  parseEmojiQuery,
+  searchEmojis,
+} from "../lib/emoji.js";
 import { fetchCurrentWeatherForZip, formatWeatherText } from "../lib/weather.js";
 
 /** Vercel injects env vars; dotenv files are for local `vercel dev` only. */
@@ -124,6 +129,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   logIncomingBody(req);
   const text = getText(req);
+  const emojiQuery = parseEmojiQuery(text);
   const mbtaQuery = parseMbtaStopQuery(text);
   const wantsSchool = SCHOOL.test(text);
   const wantsHome = HOME.test(text);
@@ -132,6 +138,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   console.error("[inbound-sms] parsed text:", {
     len: text.length,
     weather: WEATHER.test(text),
+    emoji: emojiQuery.type === "ok" ? emojiQuery.search : emojiQuery.type,
     mbtaStop: mbtaQuery.type === "ok" ? mbtaQuery.stopNumber : mbtaQuery.type,
     school: wantsSchool,
     home: wantsHome,
@@ -142,7 +149,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   let body = "hello world";
 
-  if (mbtaQuery.type === "invalid") {
+  if (emojiQuery.type === "invalid") {
+    body = 'Emoji: use "👀 word" (search term).';
+    console.error("[inbound-sms] emoji search invalid format");
+  } else if (emojiQuery.type === "ok") {
+    const key = process.env.EMOJI_KEY?.trim();
+    if (!key) {
+      body = "Set EMOJI_KEY in .env";
+      console.error("[inbound-sms] emoji skipped: no EMOJI_KEY");
+    } else {
+      try {
+        body = formatEmojiSearchText(await searchEmojis(emojiQuery.search));
+        console.error("[inbound-sms] emoji ok", emojiQuery.search);
+      } catch (e) {
+        body = "Emoji search unavailable.";
+        console.error("[inbound-sms] emoji error", e);
+      }
+    }
+  } else if (mbtaQuery.type === "invalid") {
     body = 'MBTA: use "MBTA 1234" (stop number).';
     console.error("[inbound-sms] mbta stop invalid format");
   } else if (mbtaQuery.type === "ok") {
