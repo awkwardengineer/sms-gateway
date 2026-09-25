@@ -41,6 +41,11 @@ const SCHOOL = /\bschool\b/i;
 const HOME = /\bhome\b/i;
 const DAVIS = /\bdavis\b/i;
 
+/** Whole-message replies (case-insensitive). */
+const HARDCODED_REPLIES: Record<string, string> = {
+  poo: "💩",
+};
+
 async function busSection(title: string, q: NextBusQuery): Promise<string> {
   try {
     const mins = await nextBusMinutesFromNow(q);
@@ -248,7 +253,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
   } else {
-    console.error("[inbound-sms] reply: hello");
+    const canned = HARDCODED_REPLIES[text.toLowerCase()];
+    if (canned) {
+      body = canned;
+      console.error("[inbound-sms] hardcoded reply");
+    } else {
+      console.error("[inbound-sms] reply: hello");
+    }
   }
 
   console.error(
